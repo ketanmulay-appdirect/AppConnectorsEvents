@@ -1,0 +1,38 @@
+# Virtual environments
+venv/
+env/
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Sample data files
+samples/
+*.csv
+
+# Credentials and config files
+credentials.json
+token.json
+service-account-key.json
+config.json
+
+# Temporary files
+*.tmp
+*.temp
