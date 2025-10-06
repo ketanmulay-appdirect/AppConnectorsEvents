@@ -2,12 +2,20 @@
  * AppConnectors Events Automation - Google Apps Script
  * ===================================================
  * 
- * Processes AppConnectors events data and generates comprehensive trend analysis.
+ * This script processes AppConnectors events data from multiple sheets and generates
+ * comprehensive monthly trend analysis by ISV Code, Event Type, Tenant and combinations.
  * 
- * Input Sheets: EventsByISV, ErrorEvents
- * Output Sheets: Dashboard, ISV Trends, Tenant Trends, Event Type Trends, Combined Trends, Charts, Action Required
+ * Input Sheets:
+ * - EventsByISV: Events grouped by ISV Code and Tenant (contains all tenant info)
+ * - ErrorEvents: Detailed error events with categories
  * 
- * Main function: processAppConnectorsEvents()
+ * Output Sheets:
+ * - Dashboard: Key metrics and summary
+ * - ISV Trends: Trends by ISV Code
+ * - Tenant Trends: Trends by Tenant
+ * - Event Type Trends: Trends by Event Type
+ * - Combined Trends: Multi-dimensional analysis
+ * - Charts: Trend visualizations
  */
 
 // Error Categories Configuration
@@ -208,6 +216,8 @@ const ERROR_CATEGORIES = [
  * Main function to process AppConnectors events from multiple sheets
  */
 function processAppConnectorsEvents() {
+  console.log("🚀 Starting AppConnectors Multi-Sheet Analysis");
+  
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     
@@ -228,7 +238,12 @@ function processAppConnectorsEvents() {
     createChartsSheet(spreadsheet, trendAnalysis);
     
     // Create Action Required sheet
-    createActionRequiredSheet(spreadsheet, combinedData);
+    try {
+      createActionRequiredSheet(spreadsheet, combinedData);
+      console.log("✅ Action Required sheet created successfully");
+    } catch (error) {
+      console.error("❌ Error creating Action Required sheet:", error);
+    }
     
     // Show completion message with filtering statistics
     const totalEvents = combinedData.length;
@@ -241,34 +256,27 @@ function processAppConnectorsEvents() {
     const totalSuccessfulEvents = combinedData.reduce((sum, e) => sum + e.successful, 0);
     const totalAllEvents = combinedData.reduce((sum, e) => sum + e.allEvents, 0);
     
-    // Try to show UI alert, but don't fail if UI is not available
-    try {
-      SpreadsheetApp.getUi().alert(
-        'Multi-Sheet Analysis Complete!',
-        `✅ Successfully processed data from 2 input sheets\n` +
-        `📊 EventsByISV: ${eventsByISVData.length} records\n` +
-        `🚨 ErrorEvents: ${errorEventsData.length} records\n` +
-        `🔍 Known errors filtered out: ${knownErrorsFiltered}\n` +
-        `⚠️ Real failures from ErrorEvents: ${realFailuresFromErrors}\n` +
-        `📈 Trend data points (filtered): ${trendAnalysis.totalDataPoints}\n` +
-        `📊 ISV Codes analyzed: ${trendAnalysis.isvTrends.length}\n` +
-        `🏢 Tenants analyzed: ${trendAnalysis.tenantTrends.length}\n` +
-        `📋 Event types analyzed: ${trendAnalysis.eventTypeTrends.length}\n` +
-        `🔗 Combined trends: ${trendAnalysis.combinedTrends.length}\n\n` +
-        `Check new sheets: Dashboard, ISV Trends, Tenant Trends, Event Type Trends, Combined Trends, Charts`,
-        SpreadsheetApp.getUi().ButtonSet.OK
-      );
-    } catch (uiError) {
-      // UI not available - processing completed silently
-    }
+    SpreadsheetApp.getUi().alert(
+      'Multi-Sheet Analysis Complete!',
+      `✅ Successfully processed data from 2 input sheets\n` +
+      `📊 EventsByISV: ${eventsByISVData.length} records\n` +
+      `🚨 ErrorEvents: ${errorEventsData.length} records\n` +
+      `🔍 Known errors filtered out: ${knownErrorsFiltered}\n` +
+      `⚠️ Real failures from ErrorEvents: ${realFailuresFromErrors}\n` +
+      `📈 Trend data points (filtered): ${trendAnalysis.totalDataPoints}\n` +
+      `📊 ISV Codes analyzed: ${trendAnalysis.isvTrends.length}\n` +
+      `🏢 Tenants analyzed: ${trendAnalysis.tenantTrends.length}\n` +
+      `📋 Event types analyzed: ${trendAnalysis.eventTypeTrends.length}\n` +
+      `🔗 Combined trends: ${trendAnalysis.combinedTrends.length}\n\n` +
+      `Check new sheets: Dashboard, ISV Trends, Tenant Trends, Event Type Trends, Combined Trends, Charts`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    
+    console.log("✅ Multi-sheet processing completed successfully");
     
   } catch (error) {
-    // Try to show error alert, but don't fail if UI is not available
-    try {
-      SpreadsheetApp.getUi().alert('Error', `Processing failed: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
-    } catch (uiError) {
-      throw error; // Re-throw the original error
-    }
+    console.error("❌ Error processing events:", error);
+    SpreadsheetApp.getUi().alert('Error', `Processing failed: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
 
@@ -278,7 +286,10 @@ function processAppConnectorsEvents() {
  */
 function readEventsByISVData(spreadsheet) {
   const sheet = spreadsheet.getSheetByName("EventsByISV");
-  if (!sheet) return [];
+  if (!sheet) {
+    console.log("⚠️ EventsByISV sheet not found, skipping");
+    return [];
+  }
   
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
@@ -286,13 +297,15 @@ function readEventsByISVData(spreadsheet) {
   const headers = data[0];
   const rows = data.slice(1);
   
-  return rows.map(row => {
+  const isvData = rows.map(row => {
     const event = {};
     headers.forEach((header, index) => {
       event[header] = row[index];
     });
     return event;
-  }).filter(event => event.ISVCODE || event.ISVCode || event['ISV Code']);
+  }).filter(event => event.ISVCODE || event.ISVCode || event['ISV Code']); // Handle different header formats
+  
+  return isvData;
 }
 
 
@@ -301,7 +314,10 @@ function readEventsByISVData(spreadsheet) {
  */
 function readErrorEventsData(spreadsheet) {
   const sheet = spreadsheet.getSheetByName("ErrorEvents");
-  if (!sheet) return [];
+  if (!sheet) {
+    console.log("⚠️ ErrorEvents sheet not found, skipping");
+    return [];
+  }
   
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
@@ -309,22 +325,25 @@ function readErrorEventsData(spreadsheet) {
   const headers = data[0];
   const rows = data.slice(1);
   
-  return rows.map(row => {
+  const errorData = rows.map(row => {
     const event = {};
     headers.forEach((header, index) => {
       event[header] = row[index];
     });
     return event;
-  }).filter(event => event.Message || event.Category);
+  }).filter(event => event.Message || event.Category); // Filter out empty rows
+  
+  return errorData;
 }
 
 /**
  * Combine data from input sheets into unified format
  */
 function combineAllData(eventsByISVData, errorEventsData) {
+  
   const combinedData = [];
   
-  // Process EventsByISV data
+  // Process EventsByISV data (contains ISV Code, Event Type, and Tenant info)
   eventsByISVData.forEach(event => {
     const month = event.Month || 'Sept\'25';
     const isvCode = event.ISVCODE || event.ISVCode || event['ISV Code'] || 'Unknown';
@@ -358,6 +377,7 @@ function combineAllData(eventsByISVData, errorEventsData) {
     const eventType = event['Event Type'] || event.EventType || 'Unknown';
     const tenant = event.Tenant || 'Unknown';
     
+    // Only count as failure if it's NOT a known error
     const isRealFailure = !category.isKnownError;
     
     combinedData.push({
@@ -365,25 +385,15 @@ function combineAllData(eventsByISVData, errorEventsData) {
       isvCode: isvCode,
       eventType: eventType,
       tenant: tenant,
-      failed: isRealFailure ? 1 : 0,
+      failed: isRealFailure ? 1 : 0, // Only count real failures
       allEvents: 1,
-      successful: isRealFailure ? 0 : 1,
+      successful: isRealFailure ? 0 : 1, // Known errors count as successful
       failureRate: isRealFailure ? 100 : 0,
       category: category.name,
       isKnownError: category.isKnownError,
       isRealFailure: isRealFailure,
       source: 'ErrorEvents',
-      key: `${month}_${isvCode}_${eventType}_${tenant}_${category.name}`,
-      originalEvent: {
-        'Event ID': event['Event ID'] || event.EventID || event.eventId,
-        'Timestamp': event.Timestamp || event.timestamp,
-        'Message': message,
-        'ISV Code': isvCode,
-        'Event Type': eventType,
-        'Tenant': tenant,
-        'Month': month,
-        'Category': event.Category || category.name
-      }
+      key: `${month}_${isvCode}_${eventType}_${tenant}_${category.name}`
     });
   });
   
@@ -425,10 +435,17 @@ function categorizeErrorMessage(message, existingCategory) {
  * Calculate comprehensive trends across all dimensions
  */
 function calculateComprehensiveTrends(combinedData) {
+  
   // Filter data to exclude known errors and use only real failures
   const filteredData = combinedData.filter(item => {
-    if (item.source === 'EventsByISV') return true;
-    if (item.source === 'ErrorEvents') return !item.isKnownError;
+    if (item.source === 'EventsByISV') {
+      // Keep EventsByISV data but adjust failure counts based on ErrorEvents filtering
+      return true;
+    }
+    // For ErrorEvents, only keep real failures (not known errors)
+    if (item.source === 'ErrorEvents') {
+      return !item.isKnownError;
+    }
     return true;
   });
   
@@ -1149,18 +1166,19 @@ function createActionRequiredSheet(spreadsheet, combinedData) {
     .setHorizontalAlignment('center');
   
   if (actionRequiredEvents.length > 0) {
+    // Process each event individually (no grouping)
     const actionData = actionRequiredEvents.map((event, index) => {
-      const originalEvent = event.originalEvent || {};
+      // Safely access event properties with fallbacks
+      const isvCode = event.isvCode || 'Unknown';
+      const eventType = event.eventType || 'Unknown';
+      const tenant = event.tenant || 'Unknown';
+      const errorCategory = event.errorCategory || 'Uncategorized';
+      const message = event.message || 'No message available';
+      const month = event.month || 'Unknown';
+      const eventId = event['Event ID'] || event.eventId || event['EventID'] || `ERR-${Date.now()}-${index + 1}`;
+      const timestamp = event.Timestamp || event.timestamp || event['Timestamp'] || 'Unknown';
       
-      const isvCode = originalEvent['ISV Code'] || event.isvCode || 'Unknown';
-      const eventType = originalEvent['Event Type'] || event.eventType || 'Unknown';
-      const tenant = originalEvent['Tenant'] || event.tenant || 'Unknown';
-      const errorCategory = event.category || originalEvent['Category'] || 'Uncategorized';
-      const message = originalEvent['Message'] || event.message || 'No message available';
-      const month = originalEvent['Month'] || event.month || 'Unknown';
-      const eventId = originalEvent['Event ID'] || event['Event ID'] || event.eventId || event['EventID'] || `ERR-${Date.now()}-${index + 1}`;
-      const timestamp = originalEvent['Timestamp'] || event.Timestamp || event.timestamp || event['Timestamp'] || 'Unknown';
-      
+      // Truncate long messages for readability
       const truncatedMessage = message.length > 150 
         ? message.substring(0, 150) + '...' 
         : message;
@@ -1174,16 +1192,16 @@ function createActionRequiredSheet(spreadsheet, combinedData) {
         errorCategory,
         truncatedMessage,
         timestamp,
-        'Open'
+        'Open' // Default status
       ];
     });
     
     sheet.getRange(2, 1, actionData.length, headers.length).setValues(actionData);
     
-    // Apply alternating row colors
+    // Apply simple alternating row colors for better readability
     actionData.forEach((row, index) => {
       const rowNumber = index + 2;
-      const backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+      const backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff'; // Alternating gray/white
       sheet.getRange(rowNumber, 1, 1, headers.length).setBackground(backgroundColor);
     });
     
@@ -1216,6 +1234,7 @@ function createActionRequiredSheet(spreadsheet, combinedData) {
       .setFontWeight('bold')
       .setHorizontalAlignment('center');
   } else {
+    // No action required - all errors are known
     sheet.getRange(2, 1, 1, headers.length).setValues([['No Action Required - All Errors Are Known/Categorized!', '', '', '', '', '', '', '', '']]);
     sheet.getRange(2, 1, 1, headers.length)
       .setBackground('#d4edda')
@@ -1289,3 +1308,25 @@ function openActionRequired() {
   if (sheet) sheet.activate();
 }
 
+/**
+ * Test function to create Action Required sheet manually
+ */
+function testCreateActionRequired() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // Read data from input sheets
+    const eventsByISVData = readEventsByISVData(spreadsheet);
+    const errorEventsData = readErrorEventsData(spreadsheet);
+    
+    // Process and combine data
+    const combinedData = combineAllData(eventsByISVData, errorEventsData);
+    
+    // Create Action Required sheet
+    createActionRequiredSheet(spreadsheet, combinedData);
+    
+    SpreadsheetApp.getUi().alert('Success!', 'Action Required sheet created successfully!', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('Error', 'Failed to create Action Required sheet: ' + error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
