@@ -13,9 +13,9 @@
 
 // JIRA Configuration - Update these with your JIRA details
 const JIRA_CONFIG = {
-  baseUrl: 'https://appdirect.jira.com/',
-  username: 'ketan.mulay@appdirect.com',
-  apiToken: 'ATATT3xFfGF0g9m3HPqv9_tyTY2KKkHW89jgrDqS-i3gNOMUt_A49Cm74j5wpTwFXkhIACPzgyLdAPoTjWEnEbQq5U9MgDAuhwnPODVtJ-rl9xzVSJg2mYha2Yuy_P-4tYnIQ0N8FayDyC4NPwt-x0Toz4jVeedLxg4NKyJEqgcX5P9jPlgR6OI=60CFC9B8', // Generate from JIRA Account Settings
+  baseUrl: 'https://your-company.atlassian.net',
+  username: 'your-email@company.com',
+  apiToken: 'your-jira-api-token', // Generate from JIRA Account Settings
   projectKey: 'AC', // Your JIRA project key
   issueType: 'Task' // Issue type for error tickets
 };
@@ -278,27 +278,20 @@ function createJiraTicket(ticketData) {
 
 *Impact Level:* ${getPriority(ticketData.count, ticketData.uniqueCustomers)}
 
-*Affected Accounts (Action Required):*
+*Affected Accounts Summary:*
 ${detailedRecords.summary}
 
-*Detailed Records:*
-{code:title=Affected Customer/Subscription Details}
+*All Affected Customer/Subscription Records:*
 ${detailedRecords.details}
-{code}
-
-*Sample Error Messages:*
-{code:title=Error Examples}
-${detailedRecords.errorSamples}
-{code}
 
 *Next Steps:*
 1. Investigate root cause for ${ticketData.category} errors
-2. Review affected customer accounts listed above
-3. Check the specific Company UUIDs and Subscription IDs provided
-4. Implement fix or workaround
+2. Review ALL affected customer accounts listed in the table above
+3. Check each specific Company UUID and Subscription ID provided
+4. Implement fix or workaround for the identified accounts
 5. Monitor for recurrence
 
-*Data Analysis:*
+*Key Analysis:*
 • Most affected Company: ${detailedRecords.topCompany}
 • Most affected Customer: ${detailedRecords.topCustomer}
 • Error frequency pattern: ${detailedRecords.pattern}
@@ -351,7 +344,6 @@ function getDetailedRecordsForTicket(tenant, category) {
       return {
         summary: "No detailed data available - Errors sheet not found",
         details: "Unable to retrieve detailed records",
-        errorSamples: "No error samples available",
         topCompany: "Unknown",
         topCustomer: "Unknown", 
         pattern: "Unable to analyze"
@@ -363,7 +355,6 @@ function getDetailedRecordsForTicket(tenant, category) {
       return {
         summary: "No data available in Errors sheet",
         details: "Sheet appears to be empty",
-        errorSamples: "No error samples available",
         topCompany: "Unknown",
         topCustomer: "Unknown",
         pattern: "Unable to analyze"
@@ -373,11 +364,14 @@ function getDetailedRecordsForTicket(tenant, category) {
     const headers = data[0];
     const rows = data.slice(1);
     
-    // Find matching records for this tenant/category
+    // Debug: Log available headers to help with column mapping
+    console.log(`📋 Available headers in "Errors" sheet:`, headers);
+    
+    // Find matching records for this tenant/category and create unique records
     const matchingRecords = [];
+    const uniqueRecordsMap = new Map();
     const companyCount = {};
     const customerCount = {};
-    const errorMessages = [];
     
     rows.forEach(row => {
       const record = {};
@@ -392,51 +386,69 @@ function getDetailedRecordsForTicket(tenant, category) {
       if (recordTenant === tenant && recordCategory === category) {
         matchingRecords.push(record);
         
-        // Count companies and customers
-        const companyUuid = record['Company Uuid'] || record.CompanyUuid || 'Unknown';
-        const customerId = record['Customer ID'] || record.CustomerId || 'Unknown';
-        const message = record.Message || record.message || '';
+        // Create unique key for deduplication - check multiple possible column names
+        const companyUuid = record['Company Uuid'] || record['CompanyUuid'] || record['Company UUID'] || record['COMPANY_UUID'] || 'Unknown';
+        const customerId = record['Customer ID'] || record['CustomerId'] || record['CUSTOMER_ID'] || record['Customer Id'] || 'Unknown';
+        const subscriptionId = record['Subscription ID'] || record['SubscriptionId'] || record['SUBSCRIPTION_ID'] || record['Subscription Id'] || 'Unknown';
+        const uniqueKey = `${companyUuid}_${customerId}_${subscriptionId}`;
         
+        // Debug: Log first few records to check data mapping
+        if (matchingRecords.length < 3) {
+          console.log(`📝 Record ${matchingRecords.length + 1} data mapping:`, {
+            companyUuid: companyUuid,
+            customerId: customerId,
+            subscriptionId: subscriptionId,
+            rawRecord: record
+          });
+        }
+        
+        // Store unique records only
+        if (!uniqueRecordsMap.has(uniqueKey)) {
+          uniqueRecordsMap.set(uniqueKey, {
+            companyUuid: companyUuid,
+            customerId: customerId,
+            subscriptionId: subscriptionId,
+            firstTimestamp: record.Timestamp || record.timestamp || 'Unknown',
+            lastTimestamp: record.Timestamp || record.timestamp || 'Unknown',
+            occurrenceCount: 1,
+            error: record.Error || record.error || record.Message || 'Unknown'
+          });
+        } else {
+          // Update existing record with latest timestamp and increment count
+          const existing = uniqueRecordsMap.get(uniqueKey);
+          existing.occurrenceCount++;
+          existing.lastTimestamp = record.Timestamp || record.timestamp || existing.lastTimestamp;
+        }
+        
+        // Count companies and customers
         companyCount[companyUuid] = (companyCount[companyUuid] || 0) + 1;
         customerCount[customerId] = (customerCount[customerId] || 0) + 1;
-        
-        if (message && errorMessages.length < 3) {
-          errorMessages.push(message);
-        }
       }
     });
+    
+    // Convert unique records map to array
+    const uniqueRecords = Array.from(uniqueRecordsMap.values());
     
     // Generate summary
     const uniqueCompanies = Object.keys(companyCount).length;
     const uniqueCustomers = Object.keys(customerCount).length;
-    const uniqueSubscriptions = new Set(matchingRecords.map(r => r['Subscription ID'] || r.SubscriptionId || 'Unknown')).size;
+    const uniqueSubscriptions = uniqueRecords.length;
     
     const summary = `• ${uniqueCompanies} unique companies affected\n• ${uniqueCustomers} unique customers affected\n• ${uniqueSubscriptions} unique subscriptions affected\n• ${matchingRecords.length} total error occurrences`;
     
-    // Generate detailed records (limit to top 20 for readability)
-    let details = "Company UUID | Customer ID | Subscription ID | Timestamp | Error\n";
-    details += "-------------|-------------|-----------------|-----------|-------\n";
+    // Generate detailed records table with proper JIRA formatting - ALL records
+    let details = "|| Company UUID || Customer ID || Subscription ID || First Occurrence || Last Occurrence || Error Count ||\n";
     
-    const limitedRecords = matchingRecords.slice(0, 20);
-    limitedRecords.forEach(record => {
-      const companyUuid = (record['Company Uuid'] || record.CompanyUuid || 'Unknown').substring(0, 8) + '...';
-      const customerId = record['Customer ID'] || record.CustomerId || 'Unknown';
-      const subscriptionId = record['Subscription ID'] || record.SubscriptionId || 'Unknown';
-      const timestamp = record.Timestamp || record.timestamp || 'Unknown';
-      const error = (record.Error || record.error || 'Unknown').substring(0, 50) + '...';
+    uniqueRecords.forEach(record => {
+      const companyUuid = record.companyUuid || 'Unknown';
+      const customerId = record.customerId || 'Unknown';
+      const subscriptionId = record.subscriptionId || 'Unknown';
+      const firstTimestamp = record.firstTimestamp || 'Unknown';
+      const lastTimestamp = record.lastTimestamp || 'Unknown';
+      const count = record.occurrenceCount || 1;
       
-      details += `${companyUuid} | ${customerId} | ${subscriptionId} | ${timestamp} | ${error}\n`;
+      details += `| ${companyUuid} | ${customerId} | ${subscriptionId} | ${firstTimestamp} | ${lastTimestamp} | ${count} |\n`;
     });
-    
-    if (matchingRecords.length > 20) {
-      details += `\n... and ${matchingRecords.length - 20} more records\n`;
-    }
-    
-    // Generate error samples
-    let errorSamples = errorMessages.length > 0 ? errorMessages.join('\n\n---\n\n') : 'No error messages available';
-    if (errorSamples.length > 1000) {
-      errorSamples = errorSamples.substring(0, 1000) + '\n\n... (truncated)';
-    }
     
     // Find top affected company and customer
     const topCompany = Object.keys(companyCount).reduce((a, b) => companyCount[a] > companyCount[b] ? a : b, 'Unknown');
@@ -451,7 +463,6 @@ function getDetailedRecordsForTicket(tenant, category) {
     return {
       summary: summary,
       details: details,
-      errorSamples: errorSamples,
       topCompany: topCompany.substring(0, 20) + (topCompany.length > 20 ? '...' : ''),
       topCustomer: topCustomer,
       pattern: pattern
@@ -462,7 +473,6 @@ function getDetailedRecordsForTicket(tenant, category) {
     return {
       summary: "Error retrieving detailed data: " + error.message,
       details: "Unable to process records due to error",
-      errorSamples: "Error samples unavailable",
       topCompany: "Unknown",
       topCustomer: "Unknown",
       pattern: "Unable to analyze"
