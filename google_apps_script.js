@@ -256,27 +256,39 @@ function processAppConnectorsEvents() {
     const totalSuccessfulEvents = combinedData.reduce((sum, e) => sum + e.successful, 0);
     const totalAllEvents = combinedData.reduce((sum, e) => sum + e.allEvents, 0);
     
-    SpreadsheetApp.getUi().alert(
-      'Multi-Sheet Analysis Complete!',
-      `✅ Successfully processed data from 2 input sheets\n` +
-      `📊 EventsByISV: ${eventsByISVData.length} records\n` +
-      `🚨 ErrorEvents: ${errorEventsData.length} records\n` +
-      `🔍 Known errors filtered out: ${knownErrorsFiltered}\n` +
-      `⚠️ Real failures from ErrorEvents: ${realFailuresFromErrors}\n` +
-      `📈 Trend data points (filtered): ${trendAnalysis.totalDataPoints}\n` +
-      `📊 ISV Codes analyzed: ${trendAnalysis.isvTrends.length}\n` +
-      `🏢 Tenants analyzed: ${trendAnalysis.tenantTrends.length}\n` +
-      `📋 Event types analyzed: ${trendAnalysis.eventTypeTrends.length}\n` +
-      `🔗 Combined trends: ${trendAnalysis.combinedTrends.length}\n\n` +
-      `Check new sheets: Dashboard, ISV Trends, Tenant Trends, Event Type Trends, Combined Trends, Charts`,
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
+    // Try to show UI alert, but don't fail if UI is not available
+    try {
+      SpreadsheetApp.getUi().alert(
+        'Multi-Sheet Analysis Complete!',
+        `✅ Successfully processed data from 2 input sheets\n` +
+        `📊 EventsByISV: ${eventsByISVData.length} records\n` +
+        `🚨 ErrorEvents: ${errorEventsData.length} records\n` +
+        `🔍 Known errors filtered out: ${knownErrorsFiltered}\n` +
+        `⚠️ Real failures from ErrorEvents: ${realFailuresFromErrors}\n` +
+        `📈 Trend data points (filtered): ${trendAnalysis.totalDataPoints}\n` +
+        `📊 ISV Codes analyzed: ${trendAnalysis.isvTrends.length}\n` +
+        `🏢 Tenants analyzed: ${trendAnalysis.tenantTrends.length}\n` +
+        `📋 Event types analyzed: ${trendAnalysis.eventTypeTrends.length}\n` +
+        `🔗 Combined trends: ${trendAnalysis.combinedTrends.length}\n\n` +
+        `Check new sheets: Dashboard, ISV Trends, Tenant Trends, Event Type Trends, Combined Trends, Charts`,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } catch (uiError) {
+      // UI not available - processing completed silently
+      console.log("✅ Multi-sheet processing completed successfully (UI alert not available)");
+    }
     
     console.log("✅ Multi-sheet processing completed successfully");
     
   } catch (error) {
     console.error("❌ Error processing events:", error);
-    SpreadsheetApp.getUi().alert('Error', `Processing failed: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+    // Try to show error alert, but don't fail if UI is not available
+    try {
+      SpreadsheetApp.getUi().alert('Error', `Processing failed: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+    } catch (uiError) {
+      // UI not available - error logged to console
+      console.error("❌ Processing failed and UI alert not available:", error.message);
+    }
   }
 }
 
@@ -393,7 +405,9 @@ function combineAllData(eventsByISVData, errorEventsData) {
       isKnownError: category.isKnownError,
       isRealFailure: isRealFailure,
       source: 'ErrorEvents',
-      key: `${month}_${isvCode}_${eventType}_${tenant}_${category.name}`
+      key: `${month}_${isvCode}_${eventType}_${tenant}_${category.name}`,
+      // Preserve original event data for Action Required sheet
+      originalEvent: event
     });
   });
   
@@ -474,6 +488,14 @@ function calculateComprehensiveTrends(combinedData) {
   
   // Group by Tenant (extracted from EventsByISV data)
   const tenantTrends = calculateTrendsByDimension(adjustedData, 'tenant');
+  
+  // Debug: Log tenant trends details
+  console.log("🏢 Tenant Trends Debug:");
+  console.log(`   Adjusted data items: ${adjustedData.length}`);
+  console.log(`   Tenant trends calculated: ${tenantTrends.length}`);
+  if (tenantTrends.length > 0) {
+    console.log(`   Sample tenant trend:`, tenantTrends[0]);
+  }
   
   // Group by Event Type
   const eventTypeTrends = calculateTrendsByDimension(adjustedData, 'eventType');
@@ -616,6 +638,13 @@ function createDashboardSheet(spreadsheet, trendAnalysis) {
   const totalEventTypes = trendAnalysis.eventTypeTrends.length;
   const totalCombinations = trendAnalysis.combinedTrends.length;
   
+  // Debug: Log trend analysis counts
+  console.log("📊 Trend Analysis Counts:");
+  console.log(`   ISV Trends: ${totalISVs}`);
+  console.log(`   Tenant Trends: ${totalTenants} (type: ${typeof totalTenants})`);
+  console.log(`   Event Type Trends: ${totalEventTypes}`);
+  console.log(`   Combined Trends: ${totalCombinations}`);
+  
   // Calculate filtering statistics from the raw data
   const spreadsheetData = SpreadsheetApp.getActiveSpreadsheet();
   const errorEventsSheet = spreadsheetData.getSheetByName("ErrorEvents");
@@ -679,8 +708,17 @@ function createDashboardSheet(spreadsheet, trendAnalysis) {
   
   // Calculate real failures from trend analysis (should match trend sheets)
   const realFailuresFromTrends = trendAnalysis.isvTrends.reduce((sum, trend) => sum + trend.failed, 0);
-  const realFailuresCount = realFailuresFromTrends; // Use trend calculation for consistency
+  
+  // Calculate real failures directly from ErrorEvents for dashboard consistency
+  const realFailuresFromErrors = errorEventsCount - knownErrorsFiltered;
   const filterEffectiveness = errorEventsCount > 0 ? Math.round((knownErrorsFiltered / errorEventsCount) * 100) : 0;
+  
+  // Debug logging for dashboard calculations
+  console.log("📊 Dashboard Calculation Debug:");
+  console.log(`   Total Error Events: ${errorEventsCount}`);
+  console.log(`   Known Errors Filtered: ${knownErrorsFiltered}`);
+  console.log(`   Real Failures (ErrorEvents): ${realFailuresFromErrors}`);
+  console.log(`   Calculation Check: ${knownErrorsFiltered} + ${realFailuresFromErrors} = ${knownErrorsFiltered + realFailuresFromErrors} (should equal ${errorEventsCount})`);
   
   const dashboardData = [
     ['AppConnectors Events Dashboard', '', '', ''],
@@ -693,20 +731,20 @@ function createDashboardSheet(spreadsheet, trendAnalysis) {
     ['', '', '', ''],
     ['🔍 Error Filtering Results', '', '', ''],
     ['Individual Error Events Analyzed:', errorEventsCount, '', ''],
-    ['Known Errors (Ignored):', knownErrorsFiltered, '', ''],
-    ['Real Failures (Need Attention):', realFailuresCount, '', ''],
-    ['Real Failure Rate:', totalEventsFromISV > 0 ? `${Math.round((realFailuresCount/totalEventsFromISV)*100*100)/100}%` : '0%', '', ''],
+    ['Data/Configuration issues:', knownErrorsFiltered, '', ''],
+    ['Bugs/CIMs:', realFailuresFromErrors, '', ''],
+    ['Actual Failure Rate:', totalEventsFromISV > 0 ? `${Math.round((realFailuresFromErrors/totalEventsFromISV)*100*100)/100}%` : '0%', '', ''],
     ['', '', '', ''],
     ['📈 Analysis Available', '', '', ''],
     ['ISV Codes Analyzed:', totalISVs, '', ''],
-    ['Tenants Analyzed:', totalTenants, '', ''],
+    ['Tenants Analyzed:', `${totalTenants}`, '', ''],
     ['Event Types Analyzed:', totalEventTypes, '', ''],
     ['Trend Combinations:', totalCombinations, '', ''],
     ['', '', '', ''],
     ['📋 Key Insights', '', '', ''],
     [`• ${Math.round(((totalSuccessfulFromISV/totalEventsFromISV)*100)*10)/10}% of events are successful`, '', '', ''],
     [`• ${Math.round(((totalFailedFromISV/totalEventsFromISV)*100)*10)/10}% of events have failures`, '', '', ''],
-    [`• ${Math.round(((realFailuresCount/totalEventsFromISV)*100)*1000)/1000}% are real failures needing attention`, '', '', ''],
+    [`• ${Math.round(((realFailuresFromErrors/totalEventsFromISV)*100)*1000)/1000}% are real failures needing attention`, '', '', ''],
     [`• Error filtering is ${filterEffectiveness}% effective`, '', '', ''],
     ['', '', '', ''],
     ['🕐 Last Updated:', new Date().toLocaleString(), '', ''],
@@ -735,20 +773,20 @@ function createDashboardSheet(spreadsheet, trendAnalysis) {
     sheet.getRange(row, 1, 1, 1)
       .setBackground('#f0f0f0')
       .setFontWeight('bold')
-      .setFontSize(12);
+      .setFontSize(13);
   });
   
   // Highlight the main metrics section (your data)
   sheet.getRange(3, 1, 1, 1)
     .setBackground('#d4edda')
     .setFontWeight('bold')
-    .setFontSize(12);
+    .setFontSize(13);
     
   // Highlight the filtering section
   sheet.getRange(9, 1, 1, 1)
     .setBackground('#fff3cd')
     .setFontWeight('bold')
-    .setFontSize(12);
+    .setFontSize(13);
     
   // Highlight the Real Failure Rate row (key metric)
   sheet.getRange(13, 1, 1, 2)
@@ -1153,7 +1191,7 @@ function createActionRequiredSheet(spreadsheet, combinedData) {
   
   // Headers
   const headers = [
-    'Event ID', 'ISV Code', 'Event Type', 'Tenant', 'Month', 
+    'Source ID', 'ISV Code', 'Event Type', 'Tenant', 'Month', 
     'Error Category', 'Message', 'Timestamp', 'Status'
   ];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -1172,11 +1210,23 @@ function createActionRequiredSheet(spreadsheet, combinedData) {
       const isvCode = event.isvCode || 'Unknown';
       const eventType = event.eventType || 'Unknown';
       const tenant = event.tenant || 'Unknown';
-      const errorCategory = event.errorCategory || 'Uncategorized';
-      const message = event.message || 'No message available';
+      const errorCategory = event.category || 'Uncategorized';
+      const message = event.originalEvent?.Message || event.message || 'No message available';
       const month = event.month || 'Unknown';
-      const eventId = event['Event ID'] || event.eventId || event['EventID'] || `ERR-${Date.now()}-${index + 1}`;
-      const timestamp = event.Timestamp || event.timestamp || event['Timestamp'] || 'Unknown';
+      
+      // Get Source ID from original ErrorEvents data for Datadog tracking
+      const sourceId = event.originalEvent?.['Source ID'] || 
+                      event.originalEvent?.['SourceID'] || 
+                      event.originalEvent?.sourceId || 
+                      event['Source ID'] || 
+                      event.sourceId || 
+                      `ERR-${Date.now()}-${index + 1}`;
+      
+      const timestamp = event.originalEvent?.Timestamp || 
+                       event.originalEvent?.timestamp || 
+                       event.Timestamp || 
+                       event.timestamp || 
+                       'Unknown';
       
       // Truncate long messages for readability
       const truncatedMessage = message.length > 150 
@@ -1184,7 +1234,7 @@ function createActionRequiredSheet(spreadsheet, combinedData) {
         : message;
       
       return [
-        eventId,
+        sourceId,
         isvCode,
         eventType,
         tenant,
