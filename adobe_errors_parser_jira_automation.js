@@ -24,42 +24,42 @@ const JIRA_CONFIG = {
 // Error Category Configuration for JIRA Tickets
 const ERROR_CATEGORY_CONFIG = {
   // Global settings
-  createJiraTickets: true, // Master flag to enable/disable JIRA ticket creation
+  createJiraTickets: true, // Master flag to enable/disable JIRA ticket creation (disabled by default)
   
   // Per-category configuration
   categories: {
     "1116 - Invalid Customer": {
       createTicket: true,
       nextSteps: [
-        "Verify customer account status in Adobe system",
-        "Check customer eligibility for the requested product/service",
-        "Review customer onboarding process for data accuracy",
-        "Update customer records if necessary",
-        "Implement validation checks to prevent future occurrences"
+        "Verify customer existence: Use Adobe Partner Center portal or Adobe APIs to confirm if the customer ID exists under our partner account",
+        "If customer NOT found: Execute softcancel operation for ALL Adobe subscriptions associated with this customer ID, then unlink the customer from the company on marketplace",
+        "Update documentation: Record the softcancellations and notify partner if necessary"
       ]
     },
     "2136 - Review the renewal settings": {
       createTicket: true,
       nextSteps: [
-        "Review renewal configuration for affected subscriptions",
-        "Validate renewal settings against business rules",
-        "Check for any recent changes to renewal policies",
-        "Update subscription renewal settings as needed",
-        "Document proper renewal configuration procedures"
+        "Check renewal settings: Access Adobe Partner Center or Adobe APIs and verify if the customer has auto-renewal enabled for at least one Active or Scheduled subscription",
+        "For RENEWAL failures: If this error occurred during a subscription renewal process and the renewal failed, execute softcancel operation on the specific Adobe subscription that failed to renew",
+        "For NON-RENEWAL operations: If this error occurred during any other operation (not renewal), enable auto-renewal setting for at least one Active or Scheduled subscription for this Adobe customer",
+        "Verify fix: After making changes, test the operation that originally failed to confirm the issue is resolved",
+        "Update documentation: Record the renewal settings changes made and notify customer if necessary"
       ]
     },
     "3115 - Invalid Customer or Subscription ID": {
       createTicket: true,
       nextSteps: [
-        "Validate customer and subscription ID formats",
-        "Check data synchronization between systems",
-        "Review ID generation and assignment processes",
-        "Implement data validation at entry points",
-        "Create monitoring for ID-related errors"
+        "Verify customer existence: Use Adobe Partner Center portal or Adobe APIs to confirm if the customer ID exists under our partner account",
+        "Verify subscription existence: Check if the specific subscription ID exists and note its current status (Active, Cancelled, Suspended, etc.)",
+        "If CUSTOMER not found: Execute softcancel operation for ALL Adobe subscriptions associated with this customer ID, then unlink the customer from the company on marketplace",
+        "If SUBSCRIPTION not found OR not Active: Execute softcancel operation on the specific subscription ID mentioned in the error",
+        "If BOTH exist and are Active: Investigate data sync issues, API authentication problems, or temporary Adobe service issues that might cause ID validation failures",
+        "Test resolution: Retry the original operation that failed to confirm the issue is resolved",
+        "Document outcome: Update customer/subscription records with resolution details and any status changes made"
       ]
     },
     "Default": {
-      createTicket: true,
+      createTicket: false,
       nextSteps: [
         "Investigate root cause for the error category",
         "Review ALL affected customer accounts listed in the table above",
@@ -95,6 +95,9 @@ function processCsvAndCreateJiraTickets() {
     const jiraResults = createJiraTickets(clubbedData);
     createJiraTicketsSheet(spreadsheet, jiraResults);
     
+    // Step 6: Create sheet for events without JIRA tickets
+    createNoTicketEventsSheet(spreadsheet, jiraResults, clubbedData);
+    
     // Show completion message
     try {
       SpreadsheetApp.getUi().alert(
@@ -103,8 +106,9 @@ function processCsvAndCreateJiraTickets() {
         `📊 Tenants analyzed: ${Object.keys(clubbedData).length}\n` +
         `📋 Unique records: ${uniqueRecords.length}\n` +
         `🎫 JIRA tickets created: ${jiraResults.filter(r => r.success).length}\n` +
-        `❌ JIRA failures: ${jiraResults.filter(r => !r.success).length}\n\n` +
-        `Check new sheets: Tenant Analysis, Unique Records, JIRA Tickets`,
+        `❌ JIRA failures: ${jiraResults.filter(r => !r.success).length}\n` +
+        `📝 Events without tickets: ${jiraResults.filter(r => !r.success).length}\n\n` +
+        `Check new sheets: Tenant Analysis, Unique Records, JIRA Tickets, No Ticket Events`,
         SpreadsheetApp.getUi().ButtonSet.OK
       );
     } catch (uiError) {
@@ -138,9 +142,6 @@ function readCsvData(spreadsheet) {
   const headers = data[0];
   const rows = data.slice(1);
   
-  console.log(`📋 Found headers in "Errors" sheet:`, headers);
-  console.log(`📊 Total rows in "Errors" sheet: ${rows.length}`);
-  
   // Map CSV data to objects
   const csvData = rows.map(row => {
     const record = {};
@@ -155,10 +156,6 @@ function readCsvData(spreadsheet) {
     return hasTenant && hasCategory;
   });
   
-  console.log(`📊 Read ${csvData.length} valid records from "Errors" sheet`);
-  if (csvData.length > 0) {
-    console.log(`📝 Sample record:`, csvData[0]);
-  }
   return csvData;
 }
 
@@ -212,7 +209,6 @@ function clubErrorsPerTenant(csvData) {
     });
   });
   
-  console.log(`🏢 Clubbed errors for ${Object.keys(tenantGroups).length} tenants`);
   return tenantGroups;
 }
 
@@ -253,7 +249,6 @@ function createUniqueRecords(csvData) {
   });
   
   const uniqueRecords = Array.from(uniqueMap.values());
-  console.log(`📋 Created ${uniqueRecords.length} unique records`);
   return uniqueRecords;
 }
 
@@ -265,7 +260,6 @@ function createJiraTickets(clubbedData) {
   
   // Check if JIRA ticket creation is globally enabled
   if (!ERROR_CATEGORY_CONFIG.createJiraTickets) {
-    console.log('🚫 JIRA ticket creation is disabled globally');
     Object.keys(clubbedData).forEach(tenant => {
       Object.keys(clubbedData[tenant]).forEach(category => {
         jiraResults.push({
@@ -289,7 +283,6 @@ function createJiraTickets(clubbedData) {
       const categoryConfig = ERROR_CATEGORY_CONFIG.categories[category] || ERROR_CATEGORY_CONFIG.categories["Default"];
       
       if (!categoryConfig.createTicket) {
-        console.log(`🚫 JIRA ticket creation disabled for category: ${category}`);
         jiraResults.push({
           tenant: tenant,
           category: category,
@@ -336,7 +329,6 @@ function createJiraTickets(clubbedData) {
     });
   });
   
-  console.log(`🎫 JIRA ticket creation completed: ${jiraResults.filter(r => r.success).length} success, ${jiraResults.filter(r => !r.success).length} failed`);
   return jiraResults;
 }
 
@@ -442,9 +434,6 @@ function getDetailedRecordsForTicket(tenant, category) {
     const headers = data[0];
     const rows = data.slice(1);
     
-    // Debug: Log available headers to help with column mapping
-    console.log(`📋 Available headers in "Errors" sheet:`, headers);
-    
     // Find matching records for this tenant/category and create unique records
     const matchingRecords = [];
     const uniqueRecordsMap = new Map();
@@ -469,16 +458,6 @@ function getDetailedRecordsForTicket(tenant, category) {
         const customerId = record['Customer ID'] || record['CustomerId'] || record['CUSTOMER_ID'] || record['Customer Id'] || 'Unknown';
         const subscriptionId = record['Subscription ID'] || record['SubscriptionId'] || record['SUBSCRIPTION_ID'] || record['Subscription Id'] || 'Unknown';
         const uniqueKey = `${companyUuid}_${customerId}_${subscriptionId}`;
-        
-        // Debug: Log first few records to check data mapping
-        if (matchingRecords.length < 3) {
-          console.log(`📝 Record ${matchingRecords.length + 1} data mapping:`, {
-            companyUuid: companyUuid,
-            customerId: customerId,
-            subscriptionId: subscriptionId,
-            rawRecord: record
-          });
-        }
         
         // Store unique records only
         if (!uniqueRecordsMap.has(uniqueKey)) {
@@ -679,6 +658,85 @@ function createUniqueRecordsSheet(spreadsheet, uniqueRecords) {
 }
 
 /**
+ * Create No Ticket Events sheet for events that didn't get JIRA tickets
+ */
+function createNoTicketEventsSheet(spreadsheet, jiraResults, clubbedData) {
+  let sheet = spreadsheet.getSheetByName("No Ticket Events");
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet("No Ticket Events");
+  } else {
+    sheet.clear();
+  }
+  
+  // Headers
+  const headers = [
+    'Tenant', 'Error Category', 'Total Count', 'Unique Customers', 
+    'Unique Subscriptions', 'First Occurrence', 'Last Occurrence', 
+    'Reason', 'Recommendation'
+  ];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  
+  // Format headers
+  sheet.getRange(1, 1, 1, headers.length)
+    .setBackground('#ff9800')
+    .setFontColor('white')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center');
+  
+  // Data rows - only include events that didn't get tickets
+  const rows = [];
+  jiraResults.forEach(result => {
+    if (!result.success) {
+      const errorGroup = clubbedData[result.tenant][result.category];
+      const categoryConfig = ERROR_CATEGORY_CONFIG.categories[result.category] || ERROR_CATEGORY_CONFIG.categories["Default"];
+      
+      let reason = result.message;
+      let recommendation = "Review error category and decide if JIRA ticket is needed";
+      
+      if (result.message.includes('disabled globally')) {
+        reason = "JIRA ticket creation disabled globally";
+        recommendation = "Enable ERROR_CATEGORY_CONFIG.createJiraTickets = true if tickets are needed";
+      } else if (result.message.includes('disabled for category')) {
+        reason = `JIRA ticket creation disabled for this category`;
+        recommendation = `Enable createTicket: true for "${result.category}" category if tickets are needed`;
+      }
+      
+      rows.push([
+        result.tenant,
+        result.category,
+        errorGroup.count,
+        errorGroup.uniqueCustomerCount,
+        errorGroup.uniqueSubscriptionCount,
+        errorGroup.firstOccurrence,
+        errorGroup.lastOccurrence,
+        reason,
+        recommendation
+      ]);
+    }
+  });
+  
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    
+    // Apply alternating row colors
+    rows.forEach((row, index) => {
+      const rowNumber = index + 2;
+      const backgroundColor = index % 2 === 0 ? '#fff3e0' : '#ffffff';
+      sheet.getRange(rowNumber, 1, 1, headers.length).setBackground(backgroundColor);
+    });
+  } else {
+    // Add a message if no events without tickets
+    sheet.getRange(2, 1, 1, headers.length).setValues([
+      ['No events found', 'All configured categories had JIRA tickets created', '', '', '', '', '', 'All events processed', 'No action needed']
+    ]);
+    sheet.getRange(2, 1, 1, headers.length).setBackground('#e8f5e8');
+  }
+  
+  sheet.autoResizeColumns(1, headers.length);
+  sheet.setFrozenRows(1);
+}
+
+/**
  * Create JIRA Tickets sheet
  */
 function createJiraTicketsSheet(spreadsheet, jiraResults) {
@@ -738,6 +796,7 @@ function onOpen() {
     .addItem('📊 View Tenant Analysis', 'openTenantAnalysis')
     .addItem('📋 View Unique Records', 'openUniqueRecords')
     .addItem('🎫 View JIRA Tickets', 'openJiraTickets')
+    .addItem('📝 View No Ticket Events', 'openNoTicketEvents')
     .addSeparator()
     .addItem('⚙️ Configure JIRA Settings', 'showJiraConfig')
     .addItem('🔧 Configure Error Categories', 'showErrorCategoryConfig')
@@ -759,6 +818,11 @@ function openUniqueRecords() {
 
 function openJiraTickets() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("JIRA Tickets");
+  if (sheet) sheet.activate();
+}
+
+function openNoTicketEvents() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("No Ticket Events");
   if (sheet) sheet.activate();
 }
 
