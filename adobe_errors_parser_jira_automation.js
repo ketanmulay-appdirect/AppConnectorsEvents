@@ -1,11 +1,12 @@
 /**
- * AppConnectors Adobe Errors Parser & JIRA Automation - Google Apps Script
- * ========================================================================
+ * Adobe Errors Parser & JIRA Automation - Google Apps Script
+ * ===========================================================
  * 
- * This script processes AppConnectors Adobe error data from the "Errors" sheet and:
+ * This script processes Adobe error data from the "Errors" sheet and:
  * 1. Clubs errors per tenant value
  * 2. Creates unique records per company, tenant, customer id, subscription id and error category
  * 3. Creates JIRA tickets separately per error category and for each tenant
+ * 4. Provides configurable JIRA ticket creation with category-specific settings
  * 
  * Requirements: Data must be in a sheet named "Errors"
  * Main function: processCsvAndCreateJiraTickets()
@@ -18,6 +19,56 @@ const JIRA_CONFIG = {
   apiToken: 'your-jira-api-token', // Generate from JIRA Account Settings
   projectKey: 'AC', // Your JIRA project key
   issueType: 'Task' // Issue type for error tickets
+};
+
+// Error Category Configuration for JIRA Tickets
+const ERROR_CATEGORY_CONFIG = {
+  // Global settings
+  createJiraTickets: true, // Master flag to enable/disable JIRA ticket creation
+  
+  // Per-category configuration
+  categories: {
+    "1116 - Invalid Customer": {
+      createTicket: true,
+      nextSteps: [
+        "Verify customer account status in Adobe system",
+        "Check customer eligibility for the requested product/service",
+        "Review customer onboarding process for data accuracy",
+        "Update customer records if necessary",
+        "Implement validation checks to prevent future occurrences"
+      ]
+    },
+    "2136 - Review the renewal settings": {
+      createTicket: true,
+      nextSteps: [
+        "Review renewal configuration for affected subscriptions",
+        "Validate renewal settings against business rules",
+        "Check for any recent changes to renewal policies",
+        "Update subscription renewal settings as needed",
+        "Document proper renewal configuration procedures"
+      ]
+    },
+    "3115 - Invalid Customer or Subscription ID": {
+      createTicket: true,
+      nextSteps: [
+        "Validate customer and subscription ID formats",
+        "Check data synchronization between systems",
+        "Review ID generation and assignment processes",
+        "Implement data validation at entry points",
+        "Create monitoring for ID-related errors"
+      ]
+    },
+    "Default": {
+      createTicket: true,
+      nextSteps: [
+        "Investigate root cause for the error category",
+        "Review ALL affected customer accounts listed in the table above",
+        "Check each specific Company UUID and Subscription ID provided",
+        "Implement fix or workaround for the identified accounts",
+        "Monitor for recurrence and establish preventive measures"
+      ]
+    }
+  }
 };
 
 /**
@@ -212,9 +263,43 @@ function createUniqueRecords(csvData) {
 function createJiraTickets(clubbedData) {
   const jiraResults = [];
   
+  // Check if JIRA ticket creation is globally enabled
+  if (!ERROR_CATEGORY_CONFIG.createJiraTickets) {
+    console.log('🚫 JIRA ticket creation is disabled globally');
+    Object.keys(clubbedData).forEach(tenant => {
+      Object.keys(clubbedData[tenant]).forEach(category => {
+        jiraResults.push({
+          tenant: tenant,
+          category: category,
+          success: false,
+          ticketKey: null,
+          ticketUrl: null,
+          message: 'JIRA ticket creation disabled globally'
+        });
+      });
+    });
+    return jiraResults;
+  }
+  
   Object.keys(clubbedData).forEach(tenant => {
     Object.keys(clubbedData[tenant]).forEach(category => {
       const errorGroup = clubbedData[tenant][category];
+      
+      // Check if ticket creation is enabled for this category
+      const categoryConfig = ERROR_CATEGORY_CONFIG.categories[category] || ERROR_CATEGORY_CONFIG.categories["Default"];
+      
+      if (!categoryConfig.createTicket) {
+        console.log(`🚫 JIRA ticket creation disabled for category: ${category}`);
+        jiraResults.push({
+          tenant: tenant,
+          category: category,
+          success: false,
+          ticketKey: null,
+          ticketUrl: null,
+          message: `JIRA ticket creation disabled for category: ${category}`
+        });
+        return;
+      }
       
       try {
         const ticketData = {
@@ -259,12 +344,16 @@ function createJiraTickets(clubbedData) {
  * Create individual JIRA ticket
  */
 function createJiraTicket(ticketData) {
-  const summary = `AppConnectors Adobe Error: ${ticketData.category} - ${ticketData.tenant}`;
+  const summary = `Adobe Error: ${ticketData.category} - ${ticketData.tenant}`;
   
   // Get detailed records for this tenant/category combination
   const detailedRecords = getDetailedRecordsForTicket(ticketData.tenant, ticketData.category);
   
-  const description = `*AppConnectors Adobe Error Report*
+  // Get category-specific configuration for next steps
+  const categoryConfig = ERROR_CATEGORY_CONFIG.categories[ticketData.category] || ERROR_CATEGORY_CONFIG.categories["Default"];
+  const nextSteps = categoryConfig.nextSteps.map((step, index) => `${index + 1}. ${step}`).join('\n');
+  
+  const description = `*Adobe Error Report*
 
 *Tenant:* ${ticketData.tenant}
 *Error Category:* ${ticketData.category}
@@ -285,18 +374,7 @@ ${detailedRecords.summary}
 ${detailedRecords.details}
 
 *Next Steps:*
-1. Investigate root cause for ${ticketData.category} errors
-2. Review ALL affected customer accounts listed in the table above
-3. Check each specific Company UUID and Subscription ID provided
-4. Implement fix or workaround for the identified accounts
-5. Monitor for recurrence
-
-*Key Analysis:*
-• Most affected Company: ${detailedRecords.topCompany}
-• Most affected Customer: ${detailedRecords.topCustomer}
-• Error frequency pattern: ${detailedRecords.pattern}
-
-_This ticket was automatically created by AppConnectors Adobe Error Automation._`;
+${nextSteps}`;
 
   const payload = {
     fields: {
@@ -654,7 +732,7 @@ function createJiraTicketsSheet(spreadsheet, jiraResults) {
  */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('AppConnectors Adobe Errors Parser')
+  ui.createMenu('Adobe Errors Parser')
     .addItem('🚀 Process CSV & Create JIRA Tickets', 'processCsvAndCreateJiraTickets')
     .addSeparator()
     .addItem('📊 View Tenant Analysis', 'openTenantAnalysis')
@@ -662,6 +740,7 @@ function onOpen() {
     .addItem('🎫 View JIRA Tickets', 'openJiraTickets')
     .addSeparator()
     .addItem('⚙️ Configure JIRA Settings', 'showJiraConfig')
+    .addItem('🔧 Configure Error Categories', 'showErrorCategoryConfig')
     .addToUi();
 }
 
@@ -715,4 +794,61 @@ const JIRA_CONFIG = {
     .setHeight(400);
   
   SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'JIRA Configuration');
+}
+
+/**
+ * Show Error Category configuration dialog
+ */
+function showErrorCategoryConfig() {
+  const currentStatus = ERROR_CATEGORY_CONFIG.createJiraTickets ? 'Enabled' : 'Disabled';
+  const categoryCount = Object.keys(ERROR_CATEGORY_CONFIG.categories).length - 1; // Exclude "Default"
+  
+  const html = `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h3>Error Category Configuration</h3>
+      <p><strong>Current Status:</strong> JIRA ticket creation is <span style="color: ${ERROR_CATEGORY_CONFIG.createJiraTickets ? 'green' : 'red'};">${currentStatus}</span></p>
+      <p><strong>Configured Categories:</strong> ${categoryCount} specific categories + Default fallback</p>
+      
+      <h4>Global Settings</h4>
+      <p>To enable/disable JIRA ticket creation globally, update the ERROR_CATEGORY_CONFIG:</p>
+      <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+ERROR_CATEGORY_CONFIG.createJiraTickets = true; // or false
+      </pre>
+      
+      <h4>Per-Category Configuration</h4>
+      <p>Each error category can have individual settings:</p>
+      <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+"1116 - Invalid Customer": {
+  createTicket: true,        // Enable/disable for this category
+  nextSteps: [              // Custom next steps for this error
+    "Verify customer account status",
+    "Check customer eligibility",
+    "Review onboarding process"
+  ]
+}
+      </pre>
+      
+      <h4>Available Categories</h4>
+      <ul>
+        <li>1116 - Invalid Customer</li>
+        <li>2136 - Review the renewal settings</li>
+        <li>3115 - Invalid Customer or Subscription ID</li>
+        <li>Default (fallback for unlisted categories)</li>
+      </ul>
+      
+      <p><strong>To modify:</strong></p>
+      <ol>
+        <li>Go to Extensions → Apps Script</li>
+        <li>Find ERROR_CATEGORY_CONFIG object</li>
+        <li>Update global or category-specific settings</li>
+        <li>Save the script</li>
+      </ol>
+    </div>
+  `;
+  
+  const htmlOutput = HtmlService.createHtmlOutput(html)
+    .setWidth(600)
+    .setHeight(500);
+  
+  SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'Error Category Configuration');
 }
