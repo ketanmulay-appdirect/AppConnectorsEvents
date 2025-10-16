@@ -21,6 +21,57 @@ const JIRA_CONFIG = {
   issueType: 'Task' // Issue type for error tickets
 };
 
+// Tenant-based Assignee Configuration
+const TENANT_ASSIGNEE_CONFIG = {
+  // SoftChoice tenants
+  'SOFTCHOICEUSA': {
+    assignee: 'softchoice-usa-support@company.com',
+    displayName: 'SoftChoice USA Support Team'
+  },
+  'SOFTCHOICECANADA': {
+    assignee: 'softchoice-canada-support@company.com',
+    displayName: 'SoftChoice Canada Support Team'
+  },
+  'SOFTCHOICESANDBOXCAD': {
+    assignee: 'softchoice-sandbox-support@company.com',
+    displayName: 'SoftChoice Sandbox Canada Support'
+  },
+  'SOFTCHOICESANDBOXUSA': {
+    assignee: 'softchoice-sandbox-support@company.com',
+    displayName: 'SoftChoice Sandbox USA Support'
+  },
+  
+  // ACP tenants
+  'ACP': {
+    assignee: 'acp-support@company.com',
+    displayName: 'ACP Support Team'
+  },
+  'ACPTIP': {
+    assignee: 'acp-tip-support@company.com',
+    displayName: 'ACP TIP Support Team'
+  },
+  
+  // CANCOM tenants
+  'CANCOM': {
+    assignee: 'cancom-support@company.com',
+    displayName: 'CANCOM Support Team'
+  },
+  'CANCOMTIP': {
+    assignee: 'cancom-tip-support@company.com',
+    displayName: 'CANCOM TIP Support Team'
+  },
+  'CANCOMAUSTRIAPROD': {
+    assignee: 'cancom-austria-support@company.com',
+    displayName: 'CANCOM Austria Production Support'
+  },
+  
+  // Default assignee for unknown tenants
+  'DEFAULT': {
+    assignee: 'default-adobe-support@company.com',
+    displayName: 'Default Adobe Support Team'
+  }
+};
+
 // Error Category Configuration for JIRA Tickets
 const ERROR_CATEGORY_CONFIG = {
   // Global settings
@@ -107,7 +158,8 @@ function processCsvAndCreateJiraTickets() {
         `📋 Unique records: ${uniqueRecords.length}\n` +
         `🎫 JIRA tickets created: ${jiraResults.filter(r => r.success).length}\n` +
         `❌ JIRA failures: ${jiraResults.filter(r => !r.success).length}\n` +
-        `📝 Events without tickets: ${jiraResults.filter(r => !r.success).length}\n\n` +
+        `📝 Events without tickets: ${jiraResults.filter(r => !r.success).length}\n` +
+        `👤 Tickets auto-assigned by tenant\n\n` +
         `Check new sheets: Tenant Analysis, Unique Records, JIRA Tickets, No Ticket Events`,
         SpreadsheetApp.getUi().ButtonSet.OK
       );
@@ -345,6 +397,11 @@ function createJiraTicket(ticketData) {
   const categoryConfig = ERROR_CATEGORY_CONFIG.categories[ticketData.category] || ERROR_CATEGORY_CONFIG.categories["Default"];
   const nextSteps = categoryConfig.nextSteps.map((step, index) => `${index + 1}. ${step}`).join('\n');
   
+  // Get tenant-specific assignee
+  const assigneeConfig = TENANT_ASSIGNEE_CONFIG[ticketData.tenant] || TENANT_ASSIGNEE_CONFIG['DEFAULT'];
+  const assigneeEmail = assigneeConfig.assignee;
+  const assigneeDisplayName = assigneeConfig.displayName;
+  
   const description = `*Adobe Error Report*
 
 *Tenant:* ${ticketData.tenant}
@@ -366,7 +423,9 @@ ${detailedRecords.summary}
 ${detailedRecords.details}
 
 *Next Steps:*
-${nextSteps}`;
+${nextSteps}
+
+*Assigned to:* ${assigneeDisplayName} (${assigneeEmail})`;
 
   const payload = {
     fields: {
@@ -378,7 +437,10 @@ ${nextSteps}`;
       issuetype: {
         name: JIRA_CONFIG.issueType
       },
-      labels: ['appconnectors', 'automated']
+      assignee: {
+        emailAddress: assigneeEmail
+      },
+      labels: ['appconnectors', 'automated', `tenant-${ticketData.tenant.toLowerCase()}`]
     }
   };
 
@@ -800,6 +862,7 @@ function onOpen() {
     .addSeparator()
     .addItem('⚙️ Configure JIRA Settings', 'showJiraConfig')
     .addItem('🔧 Configure Error Categories', 'showErrorCategoryConfig')
+    .addItem('👤 Configure Tenant Assignees', 'showTenantAssigneeConfig')
     .addToUi();
 }
 
@@ -915,4 +978,70 @@ ERROR_CATEGORY_CONFIG.createJiraTickets = true; // or false
     .setHeight(500);
   
   SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'Error Category Configuration');
+}
+
+/**
+ * Show Tenant Assignee configuration dialog
+ */
+function showTenantAssigneeConfig() {
+  const tenantCount = Object.keys(TENANT_ASSIGNEE_CONFIG).length - 1; // Exclude "DEFAULT"
+  
+  // Generate tenant list HTML
+  let tenantListHtml = '';
+  Object.keys(TENANT_ASSIGNEE_CONFIG).forEach(tenant => {
+    if (tenant !== 'DEFAULT') {
+      const config = TENANT_ASSIGNEE_CONFIG[tenant];
+      tenantListHtml += `<li><strong>${tenant}</strong>: ${config.displayName} (${config.assignee})</li>`;
+    }
+  });
+  
+  const defaultConfig = TENANT_ASSIGNEE_CONFIG['DEFAULT'];
+  
+  const html = `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h3>Tenant Assignee Configuration</h3>
+      <p><strong>Configured Tenants:</strong> ${tenantCount} specific tenants + Default fallback</p>
+      
+      <h4>Current Tenant Assignments</h4>
+      <ul style="line-height: 1.6;">
+        ${tenantListHtml}
+      </ul>
+      
+      <h4>Default Assignee</h4>
+      <p><strong>DEFAULT</strong>: ${defaultConfig.displayName} (${defaultConfig.assignee})</p>
+      
+      <h4>How It Works</h4>
+      <p>When a JIRA ticket is created, the system automatically assigns it based on the tenant:</p>
+      <ol>
+        <li>Looks up the tenant in TENANT_ASSIGNEE_CONFIG</li>
+        <li>Assigns ticket to the configured email address</li>
+        <li>Falls back to DEFAULT assignee for unknown tenants</li>
+        <li>Adds tenant-specific label for easy filtering</li>
+      </ol>
+      
+      <h4>To Update Assignees</h4>
+      <p>To modify tenant assignees:</p>
+      <ol>
+        <li>Go to Extensions → Apps Script</li>
+        <li>Find TENANT_ASSIGNEE_CONFIG object</li>
+        <li>Update the assignee email addresses</li>
+        <li>Update displayName if needed</li>
+        <li>Save the script</li>
+      </ol>
+      
+      <h4>Example Configuration</h4>
+      <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 12px;">
+'SOFTCHOICEUSA': {
+  assignee: 'john.doe@company.com',
+  displayName: 'John Doe - SoftChoice USA'
+}
+      </pre>
+    </div>
+  `;
+  
+  const htmlOutput = HtmlService.createHtmlOutput(html)
+    .setWidth(650)
+    .setHeight(600);
+  
+  SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'Tenant Assignee Configuration');
 }
