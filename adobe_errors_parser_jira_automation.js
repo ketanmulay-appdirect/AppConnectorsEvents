@@ -14,10 +14,10 @@
 
 // JIRA Configuration - Update these with your JIRA details
 const JIRA_CONFIG = {
-  baseUrl: 'https://your-company.atlassian.net',
-  username: 'your-email@company.com',
-  apiToken: 'your-jira-api-token', // Generate from JIRA Account Settings
-  projectKey: 'AC', // Your JIRA project key
+  baseUrl: 'https://appdirect.jira.com/',
+  username: 'ketan.mulay@appdirect.com',
+  apiToken: '', // Generate from JIRA Account Settings
+  projectKey: 'MC', // Your JIRA project key
   issueType: 'Task' // Issue type for error tickets
 };
 
@@ -25,50 +25,60 @@ const JIRA_CONFIG = {
 const TENANT_ASSIGNEE_CONFIG = {
   // SoftChoice tenants
   'SOFTCHOICEUSA': {
-    assignee: 'softchoice-usa-support@company.com',
-    displayName: 'SoftChoice USA Support Team'
+    assignee: 'mike.courts@appdirect.com',
+    displayName: 'SoftChoice USA Support Team',
+    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
   },
   'SOFTCHOICECANADA': {
-    assignee: 'softchoice-canada-support@company.com',
-    displayName: 'SoftChoice Canada Support Team'
+    assignee: 'mike.courts@appdirect.com',
+    displayName: 'SoftChoice Canada Support Team',
+    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
   },
   'SOFTCHOICESANDBOXCAD': {
-    assignee: 'softchoice-sandbox-support@company.com',
-    displayName: 'SoftChoice Sandbox Canada Support'
+    assignee: 'mike.courts@appdirect.com',
+    displayName: 'SoftChoice Sandbox Canada Support',
+    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
   },
   'SOFTCHOICESANDBOXUSA': {
-    assignee: 'softchoice-sandbox-support@company.com',
-    displayName: 'SoftChoice Sandbox USA Support'
+    assignee: 'mike.courts@appdirect.com',
+    displayName: 'SoftChoice Sandbox USA Support',
+    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
   },
   
   // ACP tenants
   'ACP': {
-    assignee: 'acp-support@company.com',
-    displayName: 'ACP Support Team'
+    assignee: 'manoj.mitkari@appdirect.com',
+    displayName: 'ACP Support Team',
+    customerProjectKey: 'ACP' // External customer project for ACP
   },
   'ACPTIP': {
-    assignee: 'acp-tip-support@company.com',
-    displayName: 'ACP TIP Support Team'
+    assignee: 'manoj.mitkari@appdirect.com',
+    displayName: 'ACP TIP Support Team',
+    customerProjectKey: 'ACP' // External customer project for ACP
   },
   
   // CANCOM tenants
   'CANCOM': {
-    assignee: 'cancom-support@company.com',
-    displayName: 'CANCOM Support Team'
+    assignee: 'manoj.mitkari@appdirect.com',
+    displayName: 'CANCOM Support Team',
+    customerProjectKey: 'CAN' // External customer project for CANCOM
   },
   'CANCOMTIP': {
-    assignee: 'cancom-tip-support@company.com',
-    displayName: 'CANCOM TIP Support Team'
+    assignee: 'manoj.mitkari@appdirect.com',
+    displayName: 'CANCOM TIP Support Team',
+    customerProjectKey: 'CAN' // External customer project for CANCOM
   },
   'CANCOMAUSTRIAPROD': {
-    assignee: 'cancom-austria-support@company.com',
-    displayName: 'CANCOM Austria Production Support'
+    assignee: 'manoj.mitkari@appdirect.com',
+    displayName: 'CANCOM Austria Production Support',
+    customerProjectKey: 'CAN' // External customer project for CANCOM
   },
   
   // Default assignee for unknown tenants
   'DEFAULT': {
-    assignee: 'default-adobe-support@company.com',
-    displayName: 'Default Adobe Support Team'
+    assignee: 'mike.courts@appdirect.com',
+    displayName: 'Default Adobe Support Team',
+    customerProjectKey: 'MC' // Default to internal project
   }
 };
 
@@ -358,13 +368,18 @@ function createJiraTickets(clubbedData) {
         };
         
         const jiraTicket = createJiraTicket(ticketData);
+        const customerTicketInfo = jiraTicket.customerTicket ? 
+          ` | Customer: ${jiraTicket.customerTicket.key}` : '';
+        
         jiraResults.push({
           tenant: tenant,
           category: category,
           success: true,
           ticketKey: jiraTicket.key,
           ticketUrl: `${JIRA_CONFIG.baseUrl}/browse/${jiraTicket.key}`,
-          message: 'Ticket created successfully'
+          customerTicketKey: jiraTicket.customerTicket?.key || null,
+          customerTicketUrl: jiraTicket.customerTicket ? `${JIRA_CONFIG.baseUrl}/browse/${jiraTicket.customerTicket.key}` : null,
+          message: `Internal ticket created successfully${customerTicketInfo}`
         });
         
       } catch (error) {
@@ -385,7 +400,7 @@ function createJiraTickets(clubbedData) {
 }
 
 /**
- * Create individual JIRA ticket
+ * Create individual JIRA ticket (creates both internal and customer tickets)
  */
 function createJiraTicket(ticketData) {
   const summary = `Adobe Error: ${ticketData.category} - ${ticketData.tenant}`;
@@ -397,10 +412,11 @@ function createJiraTicket(ticketData) {
   const categoryConfig = ERROR_CATEGORY_CONFIG.categories[ticketData.category] || ERROR_CATEGORY_CONFIG.categories["Default"];
   const nextSteps = categoryConfig.nextSteps.map((step, index) => `${index + 1}. ${step}`).join('\n');
   
-  // Get tenant-specific assignee
+  // Get tenant-specific assignee and customer project
   const assigneeConfig = TENANT_ASSIGNEE_CONFIG[ticketData.tenant] || TENANT_ASSIGNEE_CONFIG['DEFAULT'];
   const assigneeEmail = assigneeConfig.assignee;
   const assigneeDisplayName = assigneeConfig.displayName;
+  const customerProjectKey = assigneeConfig.customerProjectKey;
   
   const description = `*Adobe Error Report*
 
@@ -427,20 +443,75 @@ ${nextSteps}
 
 *Assigned to:* ${assigneeDisplayName} (${assigneeEmail})`;
 
+  // Create internal ticket (MC project)
+  const internalTicket = createSingleJiraTicket({
+    projectKey: JIRA_CONFIG.projectKey,
+    summary: `[INTERNAL] ${summary}`,
+    description: description,
+    assigneeEmail: assigneeEmail,
+    labels: ['appconnectors', 'automated', 'internal', `tenant-${ticketData.tenant.toLowerCase()}`]
+  });
+
+  // Create customer ticket (tenant-specific project) only if different from internal project
+  let customerTicket = null;
+  if (customerProjectKey !== JIRA_CONFIG.projectKey) {
+    const customerDescription = `*Adobe Error Report - Customer Visibility*
+
+*Tenant:* ${ticketData.tenant}
+*Error Category:* ${ticketData.category}
+*Total Occurrences:* ${ticketData.count}
+*Unique Customers Affected:* ${ticketData.uniqueCustomers}
+*Unique Subscriptions Affected:* ${ticketData.uniqueSubscriptions}
+
+*Time Range:*
+• First Occurrence: ${ticketData.firstOccurrence}
+• Last Occurrence: ${ticketData.lastOccurrence}
+
+*Impact Level:* ${getPriority(ticketData.count, ticketData.uniqueCustomers)}
+
+*Status:* Investigation in progress
+*Internal Reference:* ${internalTicket.key}
+
+*Affected Accounts Summary:*
+${detailedRecords.summary}
+
+*Next Steps:*
+${nextSteps}`;
+
+    customerTicket = createSingleJiraTicket({
+      projectKey: customerProjectKey,
+      summary: `Adobe Error: ${ticketData.category} - ${ticketData.tenant}`,
+      description: customerDescription,
+      assigneeEmail: assigneeEmail,
+      labels: ['adobe-error', 'customer-visible', `tenant-${ticketData.tenant.toLowerCase()}`]
+    });
+  }
+
+  // Return primary ticket (internal) with customer ticket reference
+  return {
+    ...internalTicket,
+    customerTicket: customerTicket
+  };
+}
+
+/**
+ * Create a single JIRA ticket with specified parameters
+ */
+function createSingleJiraTicket(ticketParams) {
   const payload = {
     fields: {
       project: {
-        key: JIRA_CONFIG.projectKey
+        key: ticketParams.projectKey
       },
-      summary: summary,
-      description: description,
+      summary: ticketParams.summary,
+      description: ticketParams.description,
       issuetype: {
         name: JIRA_CONFIG.issueType
       },
       assignee: {
-        emailAddress: assigneeEmail
+        emailAddress: ticketParams.assigneeEmail
       },
-      labels: ['appconnectors', 'automated', `tenant-${ticketData.tenant.toLowerCase()}`]
+      labels: ticketParams.labels
     }
   };
 
@@ -811,7 +882,7 @@ function createJiraTicketsSheet(spreadsheet, jiraResults) {
   
   // Headers
   const headers = [
-    'Tenant', 'Error Category', 'Status', 'JIRA Ticket', 'Ticket URL', 'Message'
+    'Tenant', 'Error Category', 'Status', 'Internal Ticket', 'Internal URL', 'Customer Ticket', 'Customer URL', 'Message'
   ];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   
@@ -830,6 +901,8 @@ function createJiraTicketsSheet(spreadsheet, jiraResults) {
       result.success ? '✅ Success' : '❌ Failed',
       result.ticketKey || 'N/A',
       result.ticketUrl || 'N/A',
+      result.customerTicketKey || 'N/A',
+      result.customerTicketUrl || 'N/A',
       result.message
     ]);
     
@@ -991,7 +1064,7 @@ function showTenantAssigneeConfig() {
   Object.keys(TENANT_ASSIGNEE_CONFIG).forEach(tenant => {
     if (tenant !== 'DEFAULT') {
       const config = TENANT_ASSIGNEE_CONFIG[tenant];
-      tenantListHtml += `<li><strong>${tenant}</strong>: ${config.displayName} (${config.assignee})</li>`;
+      tenantListHtml += `<li><strong>${tenant}</strong>: ${config.displayName} (${config.assignee}) → Project: ${config.customerProjectKey}</li>`;
     }
   });
   
@@ -1008,15 +1081,16 @@ function showTenantAssigneeConfig() {
       </ul>
       
       <h4>Default Assignee</h4>
-      <p><strong>DEFAULT</strong>: ${defaultConfig.displayName} (${defaultConfig.assignee})</p>
+      <p><strong>DEFAULT</strong>: ${defaultConfig.displayName} (${defaultConfig.assignee}) → Project: ${defaultConfig.customerProjectKey}</p>
       
       <h4>How It Works</h4>
-      <p>When a JIRA ticket is created, the system automatically assigns it based on the tenant:</p>
+      <p>When a JIRA ticket is created, the system creates TWO tickets:</p>
       <ol>
-        <li>Looks up the tenant in TENANT_ASSIGNEE_CONFIG</li>
-        <li>Assigns ticket to the configured email address</li>
-        <li>Falls back to DEFAULT assignee for unknown tenants</li>
-        <li>Adds tenant-specific label for easy filtering</li>
+        <li><strong>Internal Ticket</strong>: Created in MC project with detailed technical information</li>
+        <li><strong>Customer Ticket</strong>: Created in tenant-specific project for external visibility</li>
+        <li>Both tickets assigned to the same person based on tenant configuration</li>
+        <li>Customer ticket references internal ticket for tracking</li>
+        <li>Falls back to DEFAULT assignee and project for unknown tenants</li>
       </ol>
       
       <h4>To Update Assignees</h4>
@@ -1033,9 +1107,18 @@ function showTenantAssigneeConfig() {
       <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 12px;">
 'SOFTCHOICEUSA': {
   assignee: 'john.doe@company.com',
-  displayName: 'John Doe - SoftChoice USA'
+  displayName: 'John Doe - SoftChoice USA',
+  customerProjectKey: 'SC'  // Customer project for external visibility
 }
       </pre>
+      
+      <h4>Project Key Mapping</h4>
+      <ul>
+        <li><strong>SC</strong>: SoftChoice customer project</li>
+        <li><strong>ACP</strong>: ACP customer project</li>
+        <li><strong>CAN</strong>: CANCOM customer project</li>
+        <li><strong>MC</strong>: Internal project (default)</li>
+      </ul>
     </div>
   `;
   
