@@ -17,8 +17,8 @@ const JIRA_CONFIG = {
   baseUrl: 'https://appdirect.jira.com/',
   username: 'ketan.mulay@appdirect.com',
   apiToken: '', // Generate from JIRA Account Settings
-  projectKey: 'MC', // Your JIRA project key
-  issueType: 'Task' // Issue type for error tickets
+  projectKey: 'TCON', // Your JIRA project key
+  issueType: 'TC Task' // Issue type for error tickets
 };
 
 // Tenant-based Assignee Configuration
@@ -475,8 +475,13 @@ ${nextSteps}
 *Affected Accounts Summary:*
 ${detailedRecords.summary}
 
+*All Affected Customer/Subscription Records:*
+${detailedRecords.details}
+
 *Next Steps:*
-${nextSteps}`;
+${nextSteps}
+
+*Assigned to:* ${assigneeDisplayName} (${assigneeEmail})`;
 
     customerTicket = createSingleJiraTicket({
       projectKey: customerProjectKey,
