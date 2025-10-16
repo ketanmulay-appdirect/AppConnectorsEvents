@@ -16,7 +16,7 @@
 const JIRA_CONFIG = {
   baseUrl: 'https://appdirect.jira.com/',
   username: 'ketan.mulay@appdirect.com',
-  apiToken: '', // Generate from JIRA Account Settings
+  apiToken: 'ATATT3xFfGF0g9m3HPqv9_tyTY2KKkHW89jgrDqS-i3gNOMUt_A49Cm74j5wpTwFXkhIACPzgyLdAPoTjWEnEbQq5U9MgDAuhwnPODVtJ-rl9xzVSJg2mYha2Yuy_P-4tYnIQ0N8FayDyC4NPwt-x0Toz4jVeedLxg4NKyJEqgcX5P9jPlgR6OI=60CFC9B8', // Generate from JIRA Account Settings
   projectKey: 'TCON', // Your JIRA project key
   issueType: 'TC Task' // Issue type for error tickets
 };
@@ -27,58 +27,82 @@ const TENANT_ASSIGNEE_CONFIG = {
   'SOFTCHOICEUSA': {
     assignee: 'mike.courts@appdirect.com',
     displayName: 'SoftChoice USA Support Team',
-    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
+    customerProjectKey: 'SOFTC', // External customer project for SoftChoice
+    createCustomerTicket: false, // Disable customer project ticket creation
+    customFields: {
+      'customfield_26275': 'Technical Marketplace Consulting' // Project (SOFTC) field
+    }
   },
   'SOFTCHOICECANADA': {
     assignee: 'mike.courts@appdirect.com',
     displayName: 'SoftChoice Canada Support Team',
-    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
+    customerProjectKey: 'SOFTC', // External customer project for SoftChoice
+    createCustomerTicket: false, // Disable customer project ticket creation
+    customFields: {
+      // NOTE: These custom field IDs are specific to SOFTC project
+      // Update these IDs based on your actual JIRA field configuration
+      'customfield_26275': 'Technical Marketplace Consulting' // Project (SOFTC) field
+    }
   },
   'SOFTCHOICESANDBOXCAD': {
     assignee: 'mike.courts@appdirect.com',
     displayName: 'SoftChoice Sandbox Canada Support',
-    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
+    customerProjectKey: 'SOFTC', // External customer project for SoftChoice
+    createCustomerTicket: false, // Disable customer project ticket creation
+    customFields: {
+      'customfield_26275': 'Technical Marketplace Consulting' // Project (SOFTC) field
+    }
   },
   'SOFTCHOICESANDBOXUSA': {
     assignee: 'mike.courts@appdirect.com',
     displayName: 'SoftChoice Sandbox USA Support',
-    customerProjectKey: 'SOFTC' // External customer project for SoftChoice
+    customerProjectKey: 'SOFTC', // External customer project for SoftChoice
+    createCustomerTicket: false, // Disable customer project ticket creation
+    customFields: {
+      'customfield_26275': 'Technical Marketplace Consulting' // Project (SOFTC) field
+    }
   },
   
   // ACP tenants
   'ACP': {
     assignee: 'manoj.mitkari@appdirect.com',
     displayName: 'ACP Support Team',
-    customerProjectKey: 'ACP' // External customer project for ACP
+    customerProjectKey: 'ACP', // External customer project for ACP
+    createCustomerTicket: true // Enable customer project ticket creation
   },
   'ACPTIP': {
     assignee: 'manoj.mitkari@appdirect.com',
     displayName: 'ACP TIP Support Team',
-    customerProjectKey: 'ACP' // External customer project for ACP
+    customerProjectKey: 'ACP', // External customer project for ACP
+    createCustomerTicket: true // Enable customer project ticket creation
   },
   
   // CANCOM tenants
   'CANCOM': {
     assignee: 'manoj.mitkari@appdirect.com',
     displayName: 'CANCOM Support Team',
-    customerProjectKey: 'CAN' // External customer project for CANCOM
+    customerProjectKey: 'CAN', // External customer project for CANCOM
+    createCustomerTicket: true // Enable customer project ticket creation
   },
   'CANCOMTIP': {
     assignee: 'manoj.mitkari@appdirect.com',
     displayName: 'CANCOM TIP Support Team',
-    customerProjectKey: 'CAN' // External customer project for CANCOM
+    customerProjectKey: 'CAN', // External customer project for CANCOM
+    createCustomerTicket: true // Enable customer project ticket creation
   },
   'CANCOMAUSTRIAPROD': {
     assignee: 'manoj.mitkari@appdirect.com',
     displayName: 'CANCOM Austria Production Support',
-    customerProjectKey: 'CAN' // External customer project for CANCOM
+    customerProjectKey: 'CAN', // External customer project for CANCOM
+    createCustomerTicket: true // Enable customer project ticket creation
   },
   
   // Default assignee for unknown tenants
   'DEFAULT': {
     assignee: 'mike.courts@appdirect.com',
     displayName: 'Default Adobe Support Team',
-    customerProjectKey: 'MC' // Default to internal project
+    customerProjectKey: 'TCON', // Default to internal project
+    createCustomerTicket: false // Disable customer project ticket creation by default
   }
 };
 
@@ -418,6 +442,25 @@ function createJiraTicket(ticketData) {
   const assigneeDisplayName = assigneeConfig.displayName;
   const customerProjectKey = assigneeConfig.customerProjectKey;
   
+  // Adjust custom fields based on error severity if SOFTC project
+  let customFields = assigneeConfig.customFields || {};
+  if (customerProjectKey === 'SOFTC' && customFields) {
+    const priority = getPriority(ticketData.count, ticketData.uniqueCustomers);
+    customFields = { ...customFields };
+    
+    // Update Customer Priority based on error severity
+    if (priority === 'High') {
+      customFields['customfield_10101'] = 'High';
+      customFields['customfield_10102'] = 'Red'; // RAG Status
+    } else if (priority === 'Medium') {
+      customFields['customfield_10101'] = 'Medium';
+      customFields['customfield_10102'] = 'Amber'; // RAG Status
+    } else {
+      customFields['customfield_10101'] = 'Low';
+      customFields['customfield_10102'] = 'Green'; // RAG Status
+    }
+  }
+  
   const description = `*Adobe Error Report*
 
 *Tenant:* ${ticketData.tenant}
@@ -452,9 +495,9 @@ ${nextSteps}
     labels: ['appconnectors', 'automated', 'internal', `tenant-${ticketData.tenant.toLowerCase()}`]
   });
 
-  // Create customer ticket (tenant-specific project) only if different from internal project
+  // Create customer ticket (tenant-specific project) only if enabled and different from internal project
   let customerTicket = null;
-  if (customerProjectKey !== JIRA_CONFIG.projectKey) {
+  if (assigneeConfig.createCustomerTicket && customerProjectKey !== JIRA_CONFIG.projectKey) {
     const customerDescription = `*Adobe Error Report - Customer Visibility*
 
 *Tenant:* ${ticketData.tenant}
@@ -488,7 +531,8 @@ ${nextSteps}
       summary: `Adobe Error: ${ticketData.category} - ${ticketData.tenant}`,
       description: customerDescription,
       assigneeEmail: assigneeEmail,
-      labels: ['adobe-error', 'customer-visible', `tenant-${ticketData.tenant.toLowerCase()}`]
+      labels: ['adobe-error', 'customer-visible', `tenant-${ticketData.tenant.toLowerCase()}`],
+      customFields: assigneeConfig.customFields || {}
     });
   }
 
@@ -519,6 +563,13 @@ function createSingleJiraTicket(ticketParams) {
       labels: ticketParams.labels
     }
   };
+
+  // Add custom fields if provided
+  if (ticketParams.customFields) {
+    Object.keys(ticketParams.customFields).forEach(fieldId => {
+      payload.fields[fieldId] = ticketParams.customFields[fieldId];
+    });
+  }
 
   const options = {
     method: 'POST',
@@ -1113,16 +1164,28 @@ function showTenantAssigneeConfig() {
 'SOFTCHOICEUSA': {
   assignee: 'john.doe@company.com',
   displayName: 'John Doe - SoftChoice USA',
-  customerProjectKey: 'SC'  // Customer project for external visibility
+  customerProjectKey: 'SOFTC',  // Customer project for external visibility
+  customFields: {
+    'customfield_10100': 'Technical Marketplace Consulting',
+    'customfield_10101': 'Medium',  // Auto-adjusted based on error severity
+    'customfield_10102': 'Amber'    // Auto-adjusted based on error severity
+  }
 }
       </pre>
       
       <h4>Project Key Mapping</h4>
       <ul>
-        <li><strong>SC</strong>: SoftChoice customer project</li>
+        <li><strong>SOFTC</strong>: SoftChoice customer project (with custom fields)</li>
         <li><strong>ACP</strong>: ACP customer project</li>
         <li><strong>CAN</strong>: CANCOM customer project</li>
-        <li><strong>MC</strong>: Internal project (default)</li>
+        <li><strong>TCON</strong>: Internal project (default)</li>
+      </ul>
+      
+      <h4>Custom Fields (SOFTC Project)</h4>
+      <ul>
+        <li><strong>customfield_10100</strong>: Project (SOFTC) - Set to "Technical Marketplace Consulting"</li>
+        <li><strong>customfield_10101</strong>: Customer Priority - Auto-adjusted based on error severity (High/Medium/Low)</li>
+        <li><strong>customfield_10102</strong>: RAG Status - Auto-adjusted based on error severity (Red/Amber/Green)</li>
       </ul>
     </div>
   `;
