@@ -16,7 +16,7 @@
 const JIRA_CONFIG = {
   baseUrl: 'https://appdirect.jira.com/',
   username: 'ketan.mulay@appdirect.com',
-  apiToken: 'ATATT3xFfGF0g9m3HPqv9_tyTY2KKkHW89jgrDqS-i3gNOMUt_A49Cm74j5wpTwFXkhIACPzgyLdAPoTjWEnEbQq5U9MgDAuhwnPODVtJ-rl9xzVSJg2mYha2Yuy_P-4tYnIQ0N8FayDyC4NPwt-x0Toz4jVeedLxg4NKyJEqgcX5P9jPlgR6OI=60CFC9B8', // Generate from JIRA Account Settings
+  apiToken: 'TOKEN', // Generate from JIRA Account Settings
   projectKey: 'TCON', // Your JIRA project key
   issueType: 'TC Task' // Issue type for error tickets
 };
